@@ -1,6 +1,3 @@
-// ----------------------------------------------------
-// Prisma configuration
-// ----------------------------------------------------
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,233 +7,205 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ----------------------------------------------------
-// ENUMS
-// ----------------------------------------------------
+// Enums - MODIFIÉ: Ajout de PATIENT
 enum UserRole {
   ADMIN
   DOCTOR
+  NURSE
   RECEPTIONIST
-  PATIENT
-}
-
-enum Gender {
-  MALE
-  FEMALE
-  OTHER
-}
-
-enum BloodType {
-  A_POSITIVE
-  A_NEGATIVE
-  B_POSITIVE
-  B_NEGATIVE
-  O_POSITIVE
-  O_NEGATIVE
-  AB_POSITIVE
-  AB_NEGATIVE
-}
-
-enum AppointmentStatus {
-  PENDING
-  CONFIRMED
-  CANCELLED
-  COMPLETED
+  PATIENT        // NOUVEAU
 }
 
 enum InvoiceStatus {
-  UNPAID
+  DRAFT
+  PENDING
   PAID
-  PARTIALLY_PAID
+  CANCELLED
+  OVERDUE
 }
 
-// ----------------------------------------------------
-// MODELS
-// ----------------------------------------------------
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
 
-// User is the main authentication model
+enum PaymentStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+// MODIFIÉ: User peut maintenant être un Patient aussi
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  role      UserRole
-  firstName String?
-  lastName  String?
-  phone     String?
-  image     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  clinicId  String?
-  clinic    Clinic? @relation(fields: [clinicId], references: [id])
-
-  patient   Patient?
-  doctor    Doctor?
+  id            String    @id @default(cuid())
+  email         String    @unique
+  password      String
+  name          String?
+  firstName     String?
+  lastName      String?
+  phone         String?
+  image         String?
+  role          UserRole  @default(PATIENT)  // MODIFIÉ: Par défaut PATIENT
   
-  // NextAuth
-  accounts  Account[]
-  sessions  Session[]
-}
-
-// NextAuth Models
-model Account {
-  id                String  @id @default(uuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-}
-
-model Session {
-  id           String   @id @default(uuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-}
-
-// One clinic can have multiple users (Admin, doctors, etc.)
-model Clinic {
-  id        String    @id @default(uuid())
-  name      String
-  address   String?
-  phone     String?
-  email     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  staff      User[]
-  patients   Patient[]
-  services   Service[]
-}
-
-// Patient profile (extends User)
-model Patient {
-  id          String    @id @default(uuid())
-  userId      String    @unique
-  clinicId    String
-  dateOfBirth DateTime?
-  gender      Gender?
-  bloodType   BloodType?
-  address     String?
+  // Champs pour le staff (Admin, Doctor, Nurse, Receptionist)
+  clinicId      String?
+  tenantId      String?
+  tenantName    String?
+  
+  // NOUVEAU: Champs spécifiques pour Médecins
+  specialization String?
+  licenseNumber  String?
+  
+  // NOUVEAU: Champs spécifiques pour Patients
+  dateOfBirth    DateTime?
+  gender         String?
+  address        String?
+  city           String?
+  postalCode     String?
   emergencyContact String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  clinic        Clinic         @relation(fields: [clinicId], references: [id])
-  appointments  Appointment[]
-  consultations Consultation[]
-  invoices      Invoice[]
+  emergencyPhone   String?
+  bloodType      String?
+  allergies      String?
+  medicalHistory String?
+  
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  
+  // NOUVEAU: Relations pour les patients
+  invoicesAsPatient     Invoice[]      @relation("PatientInvoices")
+  appointmentsAsPatient Appointment[]  @relation("PatientAppointments")
+  consultationsAsPatient Consultation[] @relation("PatientConsultations")
+  
+  @@index([email])
+  @@index([role])
 }
 
-// Doctor profile (extends User)
-model Doctor {
-  id           String         @id @default(uuid())
-  userId       String         @unique
-  speciality   String?
-  licenseNumber String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-
-  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  appointments Appointment[]
-  consultations Consultation[]
+// MODIFIÉ: Patient devient optionnel (les données sont dans User)
+model Patient {
+  id               String   @id @default(cuid())
+  firstName        String
+  lastName         String
+  email            String?
+  phone            String
+  dateOfBirth      DateTime
+  gender           String
+  address          String?
+  city             String?
+  postalCode       String?
+  emergencyContact String?
+  emergencyPhone   String?
+  bloodType        String?
+  allergies        String?
+  medicalHistory   String?
+  tenantId         String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  
+  invoices         Invoice[]
+  appointments     Appointment[]
+  consultations    Consultation[]
 }
 
-// Appointment between patient & doctor
 model Appointment {
-  id         String            @id @default(uuid())
-  patientId  String
-  doctorId   String
-  date       DateTime
-  endDate    DateTime?
-  reason     String?
-  notes      String?
-  status     AppointmentStatus @default(PENDING)
-  createdAt  DateTime          @default(now())
-  updatedAt  DateTime          @updatedAt
-
-  patient    Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor     Doctor  @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-}
-
-// A medical consultation
-model Consultation {
-  id          String       @id @default(uuid())
-  patientId   String
-  doctorId    String
-  diagnosis   String
-  symptoms    String?
-  notes       String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-
-  patient      Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  doctor       Doctor        @relation(fields: [doctorId], references: [id], onDelete: Cascade)
-  prescription Prescription?
-}
-
-// Prescription generated after consultation
-model Prescription {
-  id             String        @id @default(uuid())
-  consultationId String        @unique
-  medications    String        // JSON string of medications array
-  instructions   String?
-  pdfUrl         String?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  consultation   Consultation   @relation(fields: [consultationId], references: [id], onDelete: Cascade)
-}
-
-// Clinic services (for invoice items)
-model Service {
-  id        String   @id @default(uuid())
-  clinicId  String
-  name      String
-  description String?
-  price     Float
+  id        String   @id @default(cuid())
+  
+  // Support à la fois Patient model et User (patient)
+  patientId String?
+  patient   Patient?  @relation(fields: [patientId], references: [id])
+  
+  userPatientId String?
+  userPatient   User?    @relation("PatientAppointments", fields: [userPatientId], references: [id])
+  
+  doctorId  String
+  date      DateTime
+  time      String
+  status    AppointmentStatus @default(SCHEDULED)
+  type      String   @default("CHECKUP")
+  reason    String?
+  notes     String?
+  tenantId  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  clinic    Clinic   @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  
+  @@index([patientId])
+  @@index([userPatientId])
+  @@index([doctorId])
 }
 
-// Invoice model (supports Stripe)
-model Invoice {
-  id          String        @id @default(uuid())
-  patientId   String
-  invoiceNumber String      @unique
-  amount      Float
-  tax         Float         @default(0)
-  total       Float
-  status      InvoiceStatus @default(UNPAID)
-  stripeId    String?       // for Stripe checkout session
-  dueDate     DateTime?
-  paidAt      DateTime?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+model Consultation {
+  id            String   @id @default(cuid())
+  
+  // Support à la fois Patient model et User (patient)
+  patientId     String?
+  patient       Patient?  @relation(fields: [patientId], references: [id])
+  
+  userPatientId String?
+  userPatient   User?     @relation("PatientConsultations", fields: [userPatientId], references: [id])
+  
+  doctorId      String
+  diagnosis     String
+  symptoms      String
+  notes         String?
+  prescription  String?
+  tenantId      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  
+  @@index([patientId])
+  @@index([userPatientId])
+}
 
-  patient     Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+model Invoice {
+  id            String        @id @default(cuid())
+  invoiceNumber String        @unique @default(cuid())
+  
+  // Support à la fois Patient model et User (patient)
+  patientId     String?
+  patient       Patient?       @relation(fields: [patientId], references: [id])
+  
+  userPatientId String?
+  userPatient   User?          @relation("PatientInvoices", fields: [userPatientId], references: [id])
+  
+  amount        Float
+  status        InvoiceStatus @default(PENDING)
+  dueDate       DateTime
+  description   String?
+  discount      Float?
+  tax           Float?
+  notes         String?
+  tenantId      String?
+  stripeId      String?
+  paidAt        DateTime?
+  items         InvoiceItem[]
+  payments      Payment[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  
+  @@index([patientId])
+  @@index([userPatientId])
+}
+
+model InvoiceItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
+  description String
+  quantity    Int
+  unitPrice   Float
+  total       Float
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  invoiceId String
+  invoice   Invoice       @relation(fields: [invoiceId], references: [id])
+  amount    Float
+  status    PaymentStatus @default(PENDING)
+  stripeId  String?
+  method    String?
+  tenantId  String?
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 }

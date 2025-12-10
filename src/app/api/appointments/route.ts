@@ -1,138 +1,142 @@
-import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
-import { prisma } from '@/lib/prisma';
-import { appointmentSchema } from '@/lib/validations';
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
     const session = await getServerSession(authOptions);
+
     if (!session?.user) {
-      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
-    }
-
-    const { searchParams } = new URL(req.url);
-    const doctorId = searchParams.get('doctorId');
-    const date = searchParams.get('date');
-    const status = searchParams.get('status');
-
-    const where: any = {};
-
-    // If user has a clinic, filter by clinic
-    if (session.user.clinicId) {
-      where.patient = {
-        clinicId: session.user.clinicId,
-      };
-    }
-
-    if (doctorId) where.doctorId = doctorId;
-    if (date) {
-      const startDate = new Date(date);
-      const endDate = new Date(date);
-      endDate.setDate(endDate.getDate() + 1);
-      where.date = { gte: startDate, lt: endDate };
-    }
-    if (status) where.status = status;
-
-    // If user is a doctor, only show their appointments
-    if (session.user.role === 'DOCTOR') {
-      const doctor = await prisma.doctor.findUnique({
-        where: { userId: session.user.id },
-      });
-      if (doctor) {
-        where.doctorId = doctor.id;
-      }
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
     const appointments = await prisma.appointment.findMany({
-      where,
+      where: { tenantId: session.user.tenantId || undefined },
       include: {
         patient: {
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-                phone: true,
-                email: true,
-              },
-            },
-          },
-        },
-        doctor: {
-          include: {
-            user: {
-              select: {
-                firstName: true,
-                lastName: true,
-              },
-            },
-          },
-        },
+          select: { firstName: true, lastName: true }
+        }
       },
-      orderBy: { date: 'asc' },
+      orderBy: { date: 'desc' },
     });
 
-    return NextResponse.json({ data: appointments });
+    return NextResponse.json(appointments);
   } catch (error) {
-    console.error('Get appointments error:', error);
+    console.error("Error fetching appointments:", error);
     return NextResponse.json(
-      { error: 'Erreur lors de la récupération des rendez-vous' },
+      { error: "Erreur lors de la récupération des rendez-vous" },
       { status: 500 }
     );
   }
 }
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
+
     if (!session?.user) {
-      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const validatedData = appointmentSchema.parse(body);
+    const body = await request.json();
+    
+    console.log("=== APPOINTMENT CREATE REQUEST ===");
+    console.log("Body received:", JSON.stringify(body, null, 2));
+    console.log("Session user:", JSON.stringify(session.user, null, 2));
 
-    // Check for conflicts
-    const conflict = await prisma.appointment.findFirst({
-      where: {
-        doctorId: validatedData.doctorId,
-        date: validatedData.date,
-        status: { not: 'CANCELLED' },
-      },
-    });
-
-    if (conflict) {
+    // Validate required fields
+    if (!body.patientId) {
+      console.log("ERROR: Missing patientId");
       return NextResponse.json(
-        { error: 'Ce créneau horaire est déjà réservé' },
+        { error: "Patient requis" },
         { status: 400 }
       );
     }
 
+    if (!body.date) {
+      console.log("ERROR: Missing date");
+      return NextResponse.json(
+        { error: "Date requise" },
+        { status: 400 }
+      );
+    }
+
+    if (!body.time) {
+      console.log("ERROR: Missing time");
+      return NextResponse.json(
+        { error: "Heure requise" },
+        { status: 400 }
+      );
+    }
+
+    // Parse the date
+    let appointmentDate: Date;
+    try {
+      appointmentDate = new Date(body.date);
+      if (isNaN(appointmentDate.getTime())) {
+        throw new Error("Invalid date");
+      }
+      console.log("Parsed date:", appointmentDate.toISOString());
+    } catch (dateError) {
+      console.log("ERROR: Invalid date format:", body.date);
+      return NextResponse.json(
+        { error: "Format de date invalide" },
+        { status: 400 }
+      );
+    }
+
+    // Create appointment data object
+    const appointmentData = {
+      patientId: body.patientId,
+      doctorId: session.user.id,
+      date: appointmentDate,
+      time: String(body.time),
+      type: body.type || "CHECKUP",
+      reason: body.reason || null,
+      status: "SCHEDULED" as const,
+      tenantId: session.user.tenantId || null,
+    };
+
+    console.log("Creating appointment with data:", JSON.stringify(appointmentData, null, 2));
+
     const appointment = await prisma.appointment.create({
-      data: validatedData,
+      data: appointmentData,
       include: {
         patient: {
-          include: {
-            user: true,
-          },
-        },
-        doctor: {
-          include: {
-            user: true,
-          },
-        },
-      },
+          select: { firstName: true, lastName: true }
+        }
+      }
     });
 
-    return NextResponse.json({
-      success: true,
-      data: appointment,
-    });
+    console.log("=== APPOINTMENT CREATED SUCCESSFULLY ===");
+    console.log("Appointment ID:", appointment.id);
+
+    return NextResponse.json(appointment, { status: 201 });
   } catch (error: any) {
-    console.error('Create appointment error:', error);
+    console.error("=== APPOINTMENT CREATE ERROR ===");
+    console.error("Error name:", error?.name);
+    console.error("Error message:", error?.message);
+    console.error("Error code:", error?.code);
+    console.error("Full error:", error);
+    
+    // Check for specific Prisma errors
+    if (error?.code === 'P2002') {
+      return NextResponse.json(
+        { error: "Un rendez-vous existe déjà pour cette date et heure" },
+        { status: 400 }
+      );
+    }
+    
+    if (error?.code === 'P2003') {
+      return NextResponse.json(
+        { error: "Patient non trouvé" },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json(
-      { error: error.message || 'Erreur lors de la création du rendez-vous' },
+      { error: "Erreur lors de la création du rendez-vous: " + (error?.message || "Unknown error") },
       { status: 500 }
     );
   }

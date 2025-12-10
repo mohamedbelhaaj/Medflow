@@ -1,70 +1,60 @@
-import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
-import { prisma } from '@/lib/prisma'
-import { generatePrescriptionPDF } from '@/lib/pdf-generator'
-import { formatDate } from '@/lib/utils'
+import { NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 
 export async function GET(
-  req: Request,
+  request: Request,
   { params }: { params: { id: string } }
 ) {
   try {
-    const session = await getServerSession(authOptions)
+    const session = await getServerSession(authOptions);
+
     if (!session?.user) {
-      return NextResponse.json({ error: 'Non autorisé' }, { status: 401 })
+      return NextResponse.json({ error: "Non autorisé" }, { status: 401 });
     }
 
-    const consultation = await prisma.consultation.findFirst({
-      where: {
-        id: params.id,
-        tenantId: session.user.tenantId,
-      },
+    const consultation = await prisma.consultation.findUnique({
+      where: { id: params.id },
       include: {
         patient: true,
-        doctor: true,
-        prescriptions: true,
       },
-    })
+    });
 
     if (!consultation) {
       return NextResponse.json(
-        { error: 'Consultation non trouvée' },
+        { error: "Consultation non trouvée" },
         { status: 404 }
-      )
+      );
     }
 
-    const pdfData = {
-      consultationId: consultation.id,
-      date: formatDate(consultation.createdAt, 'PP'),
+    // Check if patient data exists
+    if (!consultation.patient) {
+      return NextResponse.json(
+        { error: "Données du patient non trouvées" },
+        { status: 404 }
+      );
+    }
+
+    // Return prescription data
+    return NextResponse.json({
+      id: consultation.id,
+      diagnosis: consultation.diagnosis,
+      symptoms: consultation.symptoms,
+      prescription: consultation.prescription,
+      notes: consultation.notes,
       patient: {
         firstName: consultation.patient.firstName,
         lastName: consultation.patient.lastName,
-        dateOfBirth: formatDate(consultation.patient.dateOfBirth, 'PP'),
+        dateOfBirth: consultation.patient.dateOfBirth,
       },
-      doctor: {
-        name: consultation.doctor.name,
-        specialization: consultation.doctor.specialization,
-        licenseNumber: consultation.doctor.licenseNumber,
-      },
-      diagnosis: consultation.diagnosis,
-      prescriptions: consultation.prescriptions,
-    }
-
-    const pdfBlob = await generatePrescriptionPDF(pdfData)
-    const buffer = await pdfBlob.arrayBuffer()
-
-    return new NextResponse(buffer, {
-      headers: {
-        'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="ordonnance-${consultation.id}.pdf"`,
-      },
-    })
+      createdAt: consultation.createdAt,
+    });
   } catch (error) {
-    console.error('Generate PDF error:', error)
+    console.error("Error fetching prescription:", error);
     return NextResponse.json(
-      { error: 'Erreur lors de la génération du PDF' },
+      { error: "Erreur lors de la récupération de l'ordonnance" },
       { status: 500 }
-    )
+    );
   }
 }

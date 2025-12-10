@@ -1,0 +1,10 @@
+{
+  "/(auth)/register/page": "app/(auth)/register/page.js",
+  "/(auth)/login/page": "app/(auth)/login/page.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/auth/register/route": "app/api/auth/register/route.js",
+  "/(patient-portal)/portal/page": "app/(patient-portal)/portal/page.js",
+  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
+  "/(dashboard)/dashboard/appointments/page": "app/(dashboard)/dashboard/appointments/page.js",
+  "/(dashboard)/dashboard/invoices/page": "app/(dashboard)/dashboard/invoices/page.js"
+}

@@ -1,3 +1,6 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import axios from "axios";
+
 export function useConsultations(patientId?: string) {
   return useQuery({
     queryKey: ['consultations', patientId],
